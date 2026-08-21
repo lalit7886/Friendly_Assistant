@@ -169,7 +169,7 @@ def run_universal_ingestion(base_dir: str, explicit_source_type: str = None, wip
 if __name__ == "__main__":
     # Usage:
     #   python -m app.Data_injestion.processor DATA --wipe
-    #   python -m app.Data_injestion.processor DATA/true_data true
+    #   p
     wipe_requested = "--wipe" in sys.argv
     clean_args = [a for a in sys.argv if a != "--wipe"]
 

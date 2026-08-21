@@ -218,3 +218,4 @@ __marimo__/
 .streamlit/secrets.toml
 DATA
 processed_data
+.logfire
