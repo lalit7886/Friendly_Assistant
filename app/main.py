@@ -5,7 +5,6 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, Response
 from app.agents.graph import rag_agent
-
 load_dotenv()
 logfire.configure(token=os.getenv("LOGFIRE_TOKEN"))
 

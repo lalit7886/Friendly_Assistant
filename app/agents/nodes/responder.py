@@ -2,6 +2,7 @@ import logfire
 from app.agents.state import AgentState
 from app.config import settings
 from langchain_google_genai import ChatGoogleGenerativeAI
+import json
 
 llm=ChatGoogleGenerativeAI(api_key=settings.GEMINI_API_KEY,model=settings.GEMINI_MODEL)
 def generate_node(state: AgentState):
@@ -52,20 +53,23 @@ def generate_node(state: AgentState):
         USER QUESTION:
         "{user_msg}"
         """
-        
-        with logfire.span("LLM Syntesis"):
-            try:
-                content=llm.invoke(prompt).content
-                return {
-                    "final_answer" : content,
-                    "status" : "Response Generated",
-                    "plan" : state["plan"],
-                    "messages" : [{"Role":"Assistant", "content": content}]
-                    
-                }
-            except Exception as e:
-                logfire.error(f" LMM generation error is occured {e}")
+    
+    with logfire.span("LLM Syntesis"):
+        try:
+            response=llm.invoke(prompt)
+            content=response.content[0]["text"]
+
+            
+            return {
+                "final_answer" : content,
+                "status" : "Response Generated",
+                "plan" : state["plan"],
+                "messages" : [{"Role":"Assistant", "content": content}]
                 
+            }
+        except Exception as e:
+            logfire.error(f" LMM generation error is occured {e}")
+            
 
                     
             
