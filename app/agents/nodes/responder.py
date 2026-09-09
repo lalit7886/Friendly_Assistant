@@ -1,10 +1,11 @@
 import logfire
 from app.agents.state import AgentState
 from app.config import settings
-from langchain_google_genai import ChatGoogleGenerativeAI
+from app.gateways.client import portkey_client,extract_cache_status
 import json
 
-llm=ChatGoogleGenerativeAI(api_key=settings.GEMINI_API_KEY,model=settings.GEMINI_MODEL)
+
+
 def generate_node(state: AgentState):
     query=state["current_query"]
     history=""
@@ -56,10 +57,23 @@ def generate_node(state: AgentState):
     
     with logfire.span("LLM Syntesis"):
         try:
-            response=llm.invoke(prompt)
-            content=response.content[0]["text"]
+            response = portkey_client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            content=response.choices[0].message.content
+            cache_status = extract_cache_status(response)
 
-            
+            is_cache_hit = cache_status == "HIT"
+
+            if is_cache_hit:
+                logfire.info("⚡ Gateway Cache Hit — response served from Portkey cache.")
+                plan_update = state["plan"] + ["Cache: Hit ⚡"]
+                status = "Cache hit — instant response."
+            else:
+                logfire.info("✅ Response synthesised via LLM.")
+                plan_update = state["plan"]
+                status = "Response generated."          
             return {
                 "final_answer" : content,
                 "status" : "Response Generated",

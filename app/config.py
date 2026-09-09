@@ -10,4 +10,8 @@ class settings:
     QDRANT_URL = os.getenv("QDRANT_CLUSTER_END_POINT")
     QDRANT_COLLECTION="RAG_1"
     
+    PORTKEY_API_KEY = os.getenv("PORTKEY_API_KEY")
+    SLUG1="rag-1"
+    SLUG2="rag-2"
+    
 setting=settings()

@@ -1,11 +1,10 @@
 from app.agents.state import AgentState
 from app.config import settings
-
+from app.gateways.client import get_langchain_llm
 import logfire
-from langchain_google_genai import ChatGoogleGenerativeAI
 
-llm=ChatGoogleGenerativeAI(api_key=settings.GEMINI_API_KEY,model=settings.GEMINI_MODEL)
 
+llm = get_langchain_llm(feature="planner")
 
 def planner_node(state:AgentState):
     history=""
@@ -34,7 +33,7 @@ def planner_node(state:AgentState):
     
     with logfire.span("Planner Decision"):
         response = llm.invoke(prompt)
-        decision = response.content[0]["text"]
+        decision = response.content.strip()
         logfire.info(f"Intent is identified as {decision}")
 
         
