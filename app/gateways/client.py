@@ -24,7 +24,7 @@ portkey_client = Portkey(
 
 def get_langchain_llm(feature: str = "rag-1") -> ChatOpenAI:
     """
-    Returns a Portkey-backed ChatOpenAI — a drop-in for ChatGroq in LangChain nodes.
+    Returns a Portkey-backed ChatOpenAI — a drop-in for chat gemini in LangChain nodes.
 
     Why ChatOpenAI and not ChatGroq:
       Portkey is a proxy. It exposes an OpenAI-compatible endpoint at PORTKEY_GATEWAY_URL.

@@ -1,15 +1,18 @@
 import logfire
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
+# from qdrant_client import QdrantClient
+# from qdrant_client.http import models
 from app.config import settings
 from app.services.retrieval.embeddings import embed_query
+import numpy as np
+import json
+
 
 
 # Initialize Qdrant Client
-client = QdrantClient(
-    url=settings.QDRANT_URL,
-    api_key=settings.QDRANT_API_KEY
-)
+# client = QdrantClient(
+#     url=settings.QDRANT_URL,
+#     api_key=settings.QDRANT_API_KEY
+# )
 
 def search_enterprise_knowledge(query: str, limit: int = 8):
     """
@@ -19,24 +22,36 @@ def search_enterprise_knowledge(query: str, limit: int = 8):
     try:
         
         query_vector = embed_query(query)
+        embeddings=np.load("/Users/lalitramanmishra/RAG/RAG_PROJ_1/processed_data/embeddings/improved1.npy")
 
-        # Using query_points - the modern standard for Qdrant
-        response = client.query_points(
-            collection_name=settings.QDRANT_COLLECTION,
-            query=query_vector,
-            limit=limit,
-            with_payload=True # JSON
-        )
-
-        results = []
-        for res in response.points:
-            results.append({
-                "content": res.payload.get("text", ""),
-                "source": res.payload.get("source", "Unknown"),
-                "score": res.score
-            })
+        similarity = np.asarray(query_vector) @ embeddings.T
+        best_index=np.argsort(similarity)[-limit:][::-1]
         
-        return results
+        with open("/Users/lalitramanmishra/RAG/RAG_PROJ_1/processed_data/chunks/improved1.json","r",encoding="utf-8") as f:
+           
+            chunks=json.load(f)
+            result=[chunks[i] for i in best_index]
+        
+        
+        
+
+    #     # Using query_points - the modern standard for Qdrant
+    #     response = client.query_points(
+    #         collection_name=settings.QDRANT_COLLECTION,
+    #         query=query_vector,
+    #         limit=limit,
+    #         with_payload=True # JSON
+    #     )
+        result = [
+            {
+                "content": chunks[i],
+                "source": "wadapatra_AI_ready_formatted",
+                "score": float(similarity[i])
+            }
+            for i in best_index
+        ]
+
+        return result
     except Exception as e:
-        logfire.error(f" Qdrant Search Failed: {e}")
+        logfire.error(f" Local Search Failed: {e}")
         return []

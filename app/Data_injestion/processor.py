@@ -1,184 +1,82 @@
 import os
-import sys
-import uuid
 import json
-import logfire
+import numpy as np
+from pathlib import Path
 
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
+from app.services.retrieval.embeddings import embed_texts
+from app.Data_injestion.loader.excel import read_excel_
 
-from app.config import settings
-from app.services.retrieval.embeddings import embed_texts, get_embedding_dim
-from app.Data_injestion.loader.pdf import parse_pdf
-from app.Data_injestion.loader.html import parse_html
-from app.Data_injestion.loader.text import parse_text
-from app.Data_injestion.loader.office import parse_office
-from app.Data_injestion.chunking.splitter import chunk_text
 
-logfire.configure(service_name="enterprise-ingestion-service")
-
-# Local folder where parsed + chunked JSON metadata is saved (replaces GCS processed bucket)
 PROCESSED_DATA_DIR = "processed_data"
 
-# Initialize Qdrant Client
-qdrant_client = QdrantClient(
-    url=settings.QDRANT_URL,
-    api_key=settings.QDRANT_API_KEY,
-)
+
+def save_embeddings(
+    embeddings,
+    chunks,
+    filename: str,
+    output_dir: str = PROCESSED_DATA_DIR
+):
+    output_dir = Path(output_dir)
+
+    embedding_dir = output_dir / "embeddings"
+    chunk_dir = output_dir / "chunks"
+
+    embedding_dir.mkdir(parents=True, exist_ok=True)
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+
+    embeddings_array = np.asarray(embeddings, dtype=np.float32)
+
+    embedding_path = (
+        embedding_dir /
+        f"{Path(filename).stem}.npy"
+    )
+
+    np.save(embedding_path, embeddings_array)
+
+    chunk_path = (
+        chunk_dir /
+        f"{Path(filename).stem}.json"
+    )
+
+    with open(chunk_path, "w", encoding="utf-8") as f:
+        json.dump(chunks, f, ensure_ascii=False, indent=2)
+
+    return embedding_path, chunk_path
 
 
-def save_processed_locally(data: dict, source_type: str, filename: str) -> str:
-    """Save parsed chunk metadata as JSON in processed_data/<source_type>/."""
-    folder = os.path.join(PROCESSED_DATA_DIR, source_type)
-    os.makedirs(folder, exist_ok=True)
-    dest = os.path.join(folder, f"{filename}.json")
-    with open(dest, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    return dest
+def process_excel(file_path: str, filename: str):
+    chunks = read_excel_(file_path)
 
+    if not chunks:
+        raise ValueError("No chunks found in Excel file")
 
-def process_file(file_path: str, filename: str, source_type: str):
-    """Parse → chunk → save locally → embed → index in Qdrant."""
-    with logfire.span("Processing File", file=filename, source=source_type):
-        try:
-            # 1. Extract text based on file extension
-            ext = filename.lower().rsplit(".", 1)[-1]
-            if ext == "pdf":
-                full_text = parse_pdf(file_path)
-            elif ext in ("html", "htm"):
-                full_text = parse_html(file_path)
-            elif ext == "txt":
-                full_text = parse_text(file_path)
-            elif ext in ("docx", "pptx"):
-                from app.Data_injestion.loader.office import parse_office
-                full_text = parse_office(file_path)
-            else:
-                logfire.warning(f"Skipping unsupported file type: {filename}")
-                return
+    embeddings = embed_texts(chunks)
 
-            if not full_text or not full_text.strip():
-                logfire.warning(f"No text extracted from {filename} — skipping.")
-                return
+    if len(embeddings) != len(chunks):
+        raise ValueError(
+            f"Embedding count ({len(embeddings)}) "
+            f"does not match chunk count ({len(chunks)})"
+        )
 
-            # 2. Chunk text
-            chunks = chunk_text(full_text)
-            if not chunks:
-                return
+    embeddings = np.asarray(embeddings, dtype=np.float32)
 
-            # 3. Save processed metadata locally
-            processed_data = {
-                "filename": filename,
-                "source_type": source_type,
-                "chunks": chunks,
-            }
-            local_path = save_processed_locally(processed_data, source_type, filename)
-            logfire.info(f"Saved processed data → {local_path}")
+    embedding_path, chunk_path = save_embeddings(
+        embeddings,
+        chunks,
+        filename
+    )
 
-            # 4. Embed and index in Qdrant
-            with logfire.span("Vectorizing & Indexing"):
-                embeddings = embed_texts(chunks)
-                points = [
-                    models.PointStruct(
-                        id=str(uuid.uuid4()),
-                        vector=vector,
-                        payload={
-                            "text": chunk,
-                            "source": filename,
-                            "source_type": source_type,
-                        },
-                    )
-                    for chunk, vector in zip(chunks, embeddings)
-                ]
-
-                qdrant_client.upsert(
-                    collection_name=settings.QDRANT_COLLECTION,
-                    points=points,
-                )
-                logfire.info(f"Indexed {len(points)} points to Qdrant from {filename}.")
-
-        except Exception as e:
-            logfire.error(f"Failed to process {filename}: {e}")
-
-
-def process_directory(dir_path: str, source_type: str):
-    """Process every file in a directory."""
-    with logfire.span("Scanning Directory", path=dir_path, source=source_type):
-        files = [f for f in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, f))]
-        logfire.info(f"Found {len(files)} files in {dir_path}.")
-        for filename in files:
-            process_file(os.path.join(dir_path, filename), filename, source_type)
-
-
-def run_universal_ingestion(base_dir: str, explicit_source_type: str = None, wipe: bool = False):
-    """
-    Scan base_dir, map sub-folders to source types, and ingest all documents.
-    Pass --wipe to drop and recreate the Qdrant collection before ingestion.
-    """
-    with logfire.span("Universal Ingestion Started", base_directory=base_dir):
-
-        # Wipe collection if requested
-        if wipe:
-            with logfire.span("Wiping Collection"):
-                if qdrant_client.collection_exists(settings.QDRANT_COLLECTION):
-                    qdrant_client.delete_collection(settings.QDRANT_COLLECTION)
-                    logfire.info(f"Collection '{settings.QDRANT_COLLECTION}' deleted.")
-
-        # Recreate collection — dimension resolved at runtime after embedding model probe
-        if not qdrant_client.collection_exists(settings.QDRANT_COLLECTION):
-            dim = get_embedding_dim()
-            qdrant_client.create_collection(
-                collection_name=settings.QDRANT_COLLECTION,
-                vectors_config=models.VectorParams(
-                    size=dim,
-                    distance=models.Distance.COSINE,
-                ),
-            )
-            logfire.info(
-                f"Created collection '{settings.QDRANT_COLLECTION}' "
-                f"({dim}-dim, Cosine)."
-            )
-
-        # Route to sub-folders or treat the whole dir as one source
-        subdirs = [
-            d for d in os.listdir(base_dir)
-            if os.path.isdir(os.path.join(base_dir, d))
-        ]
-
-        if not subdirs:
-            if explicit_source_type:
-                source_type = explicit_source_type
-            else:
-                base_name = os.path.basename(os.path.normpath(base_dir)).lower()
-                source_type = (
-                    "true" if "true" in base_name
-                    else "noisy" if "noisy" in base_name
-                    else "general"
-                )
-            logfire.info(f"No sub-folders found — processing '{base_dir}' as '{source_type}'.")
-            process_directory(base_dir, source_type)
-        else:
-            for subdir in subdirs:
-                source_type = (
-                    "true" if "true" in subdir.lower()
-                    else "noisy" if "noisy" in subdir.lower()
-                    else subdir
-                )
-                process_directory(os.path.join(base_dir, subdir), source_type)
+    return embedding_path, chunk_path
 
 
 if __name__ == "__main__":
-    # Usage:
-    #   python -m app.Data_injestion.processor DATA --wipe
-    #   p
-    wipe_requested = "--wipe" in sys.argv
-    clean_args = [a for a in sys.argv if a != "--wipe"]
+    file_path = "/Users/lalitramanmishra/RAG/RAG_PROJ_1/DATA/improved1.xlsx"
 
-    target_dir = clean_args[1] if len(clean_args) > 1 else "DATA"
-    explicit_type = clean_args[2] if len(clean_args) > 2 else None
+    embedding_path, chunk_path = process_excel(
+        file_path,
+        Path(file_path).name
+    )
 
-    if not os.path.exists(target_dir):
-        print(f"Error: path '{target_dir}' does not exist.")
-        sys.exit(1)
-
-    run_universal_ingestion(target_dir, explicit_source_type=explicit_type, wipe=wipe_requested)
-    logfire.info("Ingestion job completed.")
+    print(f"Embeddings saved to: {embedding_path}")
+    print(f"Chunks saved to: {chunk_path}")
+    

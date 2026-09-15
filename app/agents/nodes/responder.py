@@ -18,7 +18,7 @@ def generate_node(state: AgentState):
     if query=="CONVERSATIONAL":
         logfire.info("Geenrating conversational response using memory")
         prompt = f"""
-        You are a friendly and helpful Enterprise AI Assistant.
+        You are a friendly and helpful Ward AI Assistant for local ward of Nepal Governments.
         Answer the user's latest message using the CONVERSATION HISTORY below.
 
         CONVERSATION HISTORY:
@@ -42,7 +42,7 @@ def generate_node(state: AgentState):
                 break
             
         prompt = f"""
-        You are a Senior Technical Architect.
+        You are a experienced senior AI assistant for Ward related service for local government of Nepal.
         Answer the question using the TECHNICAL CONTEXT provided.
 
         TECHNICAL CONTEXT:
