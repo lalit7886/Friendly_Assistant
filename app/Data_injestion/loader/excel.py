@@ -1,4 +1,5 @@
 import pandas as pd
+from pathlib import Path
 
 def read_excel_(file_path:str):
     try:
@@ -34,7 +35,7 @@ def read_excel_(file_path:str):
         raise e
     
 if __name__ == "__main__":
-    file_path="/Users/lalitramanmishra/RAG/RAG_PROJ_1/DATA/improved1.xlsx"
+    file_path = Path(__file__).resolve().parents[3] / "DATA" / "improved1.xlsx"
     chunks=read_excel_(file_path)
     print(len(chunks))
     for chunk in chunks:

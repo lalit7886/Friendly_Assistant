@@ -5,6 +5,7 @@ from app.config import settings
 from app.services.retrieval.embeddings import embed_query
 import numpy as np
 import json
+from pathlib import Path
 
 
 
@@ -14,20 +15,24 @@ import json
 #     api_key=settings.QDRANT_API_KEY
 # )
 
-def search_enterprise_knowledge(query: str, limit: int = 8):
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROCESSED_DATA_DIR = PROJECT_ROOT / "processed_data"
+
+def search_enterprise_knowledge(query: str, limit: int = 5):
     """
     Performs a high-precision search in the enterprise knowledge base.
-    Uses the modern query_points interface.
+    We keep the default retrieval window tight to minimize latency while
+    preserving enough context for the answerer to synthesize a correct response.
     """
     try:
         
         query_vector = embed_query(query)
-        embeddings=np.load("/Users/lalitramanmishra/RAG/RAG_PROJ_1/processed_data/embeddings/improved1.npy")
+        embeddings=np.load(PROCESSED_DATA_DIR / "embeddings" / "improved1.npy")
 
         similarity = np.asarray(query_vector) @ embeddings.T
         best_index=np.argsort(similarity)[-limit:][::-1]
         
-        with open("/Users/lalitramanmishra/RAG/RAG_PROJ_1/processed_data/chunks/improved1.json","r",encoding="utf-8") as f:
+        with open(PROCESSED_DATA_DIR / "chunks" / "improved1.json", "r", encoding="utf-8") as f:
            
             chunks=json.load(f)
             result=[chunks[i] for i in best_index]

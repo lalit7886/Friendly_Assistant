@@ -216,9 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-<<<<<<< HEAD
-DATA
-processed_data
-.logfire
-=======
->>>>>>> 0f3384a930519074890b396db0e0c454eca61f8a
+
+# Local documents, generated embeddings, and tracing state
+DATA/
+processed_data/
+.logfire/

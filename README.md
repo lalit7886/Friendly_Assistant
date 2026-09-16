@@ -74,14 +74,29 @@ RAG_PROJ_1/
 
 - macOS, Linux, or Windows
 - Python 3.13 or newer
-- A Qdrant instance and collection access
-- Google Gemini API access
+- Internet access for Gemini, Portkey, and the first fallback-model download
+- Gemini API access for embeddings and guardrails
 - Portkey API access for response generation
 - Optional Logfire token for tracing
 
-## Installation
+The current retrieval implementation reads local NumPy/JSON artifacts from `processed_data/`. Qdrant settings remain in the configuration for the intended vector-service integration, but the active search path does not contact Qdrant.
 
-From the project root:
+## Setup On Another Device
+
+Run these commands from the directory containing `app/`, `ui/`, `requirements.txt`, and `pyproject.toml`.
+
+### 1. Copy or clone the project
+
+```bash
+git clone <repository-url>
+cd RAG_PROJ_1
+```
+
+The repository intentionally ignores `DATA/` and `processed_data/` because they may contain private documents and generated files. Copy those directories separately from the original device, or regenerate `processed_data/` as described below.
+
+### 2. Create the virtual environment
+
+macOS/Linux:
 
 ```bash
 python3.13 -m venv .venv
@@ -90,64 +105,59 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-The project also contains `pyproject.toml`. If you use `uv`, install the project with:
+Windows PowerShell:
+
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Use the `requirements.txt` workflow above. It contains the complete runtime set, including Streamlit, NeMo Guardrails, NumPy, and the local embedding fallback. `pyproject.toml` and `uv.lock` are retained for development, but `uv sync` does not replace the complete requirements install for this application.
+
+### 3. Create environment variables
+
+Copy `.env.example` to `.env` and replace every placeholder with a real value. Never commit `.env`.
 
 ```bash
-uv sync
-source .venv/bin/activate
+cp .env.example .env
 ```
 
-## Environment Variables
+On Windows PowerShell:
 
-Create a `.env` file in the project root. Do not commit this file or place API keys in source code.
-
-```dotenv
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=your_gemini_model
-QDRANT_CLUSTER_END_POINT=https://your-qdrant-endpoint
-QDRANT_API_KEY=your_qdrant_api_key
-PORTKEY_API_KEY=your_portkey_api_key
-LOGFIRE_TOKEN=your_logfire_token
-BACKEND_URL=http://localhost:8001
+```powershell
+Copy-Item .env.example .env
 ```
 
-The application uses the following fixed Qdrant collection name:
+The fixed collection name is `RAG_1`. `BACKEND_URL` is read by `ui/app.py` and defaults to `http://localhost:8001`.
+
+### 4. Provide the local knowledge files
+
+For the checked-in sample workflow, place `improved1.xlsx` at `DATA/improved1.xlsx` and ensure these generated files exist:
 
 ```text
-RAG_1
+processed_data/
+├── embeddings/improved1.npy
+└── chunks/improved1.json
 ```
 
-`BACKEND_URL` is used by `ui/app.py`. If it is not set, the UI defaults to `http://localhost:8001`.
+You can copy `DATA/` and `processed_data/` from the original device. The application now resolves these paths relative to the project root, so no username-specific paths need to be edited.
 
-## Ingest Documents
-
-Place documents in `DATA/` or in source-specific subdirectories such as `DATA/true_data/` and `DATA/noisy_data/`.
-
-Run ingestion from the project root:
+To regenerate the Excel artifacts on the new device:
 
 ```bash
-python -m app.Data_injestion.processor DATA
+python -m app.Data_injestion.processor
 ```
 
-To delete and recreate the configured Qdrant collection before indexing:
-
-```bash
-python -m app.Data_injestion.processor DATA --wipe
-```
-
-To ingest one directory with an explicit source type:
-
-```bash
-python -m app.Data_injestion.processor DATA/true_data true
-```
-
-Supported input formats are PDF, HTML/HTM, TXT, DOCX, and PPTX. Parsed chunks are also saved under `processed_data/`.
+This calls Gemini embeddings when available and otherwise downloads and uses `all-mpnet-base-v2`. The current processor entry point is for the Excel workflow; the PDF, HTML, TXT, DOCX, and PPTX loaders are available under `app/Data_injestion/loader/` but are not wired to a general command-line ingestion interface yet.
 
 ## Run the Backend
 
 Start the FastAPI server on the port expected by the UI:
 
 ```bash
+source .venv/bin/activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 ```
 
@@ -196,7 +206,7 @@ source .venv/bin/activate
 streamlit run ui/app.py
 ```
 
-The UI sends requests to `BACKEND_URL` and displays answers, reasoning steps, and retrieved source chunks.
+Open the URL printed by Streamlit, usually `http://localhost:8501`. The UI sends requests to `BACKEND_URL` and displays answers, reasoning steps, and retrieved source chunks.
 
 ## Guardrails
 

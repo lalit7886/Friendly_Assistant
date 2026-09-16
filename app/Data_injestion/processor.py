@@ -70,7 +70,7 @@ def process_excel(file_path: str, filename: str):
 
 
 if __name__ == "__main__":
-    file_path = "/Users/lalitramanmishra/RAG/RAG_PROJ_1/DATA/improved1.xlsx"
+    file_path = Path(__file__).resolve().parents[2] / "DATA" / "improved1.xlsx"
 
     embedding_path, chunk_path = process_excel(
         file_path,
