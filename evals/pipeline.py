@@ -1,0 +1,103 @@
+import time
+import json
+import copy
+import os
+import requests
+import logfire
+
+
+API_URL = "http://localhost:8001/query"
+RESPONSE_TRUNCATE = 300
+DELAY_BETWEEN_CALLS = 10
+REQUEST_TIMEOUT = 120
+
+def detect_tool(thought_process : list):
+    
+    joined = " ".join(thought_process).lower()
+    if "guardrails fired" in joined:
+        return "gaurdrails"
+    
+    if "intent: technical" in joined or "search term:" in joined or "context retrieved" in joined:
+        return "retrieve_documents"
+    
+    if "conversational" in joined or "memory" in joined:
+        return "direct_answer"
+    
+    return "unknown"
+
+
+def run_pipeline(golden_dataset: dict, progress_callback=None):
+    dataset = copy.deepcopy(golden_dataset)
+    samples = dataset["rag_samples"]
+    n = len(samples)
+    
+    with logfire.span("Evaluation phase 1 live pipline",total_samples=n):
+        for i, sample in enumerate(samples):
+            question = sample["question"]
+            
+            if progress_callback:
+                progress_callback(i,n,question,"calling")
+                
+            with logfire.span(
+                f"Live query {i+1}/{n}",
+                question = question[:80],
+                domain = sample.get("domain",""),
+            ):
+                try:
+                    resp = requests.post(
+                        API_URL,
+                        json={"q":question,"thread_id":f"eval_run{i}"},
+                        timeout=REQUEST_TIMEOUT
+                    )
+                    resp.raise_for_status()
+                    data=resp.json()
+                    
+                    raw_answer = data.get("answer") or ""
+                    thought_process = data.get("thought_process") or []
+                    sources = data.get("sources") or []
+                    
+                    sample["actual_response"] = raw_answer[:RESPONSE_TRUNCATE]
+                    sample["actual_contexts"] = sources[:5]
+                    sample["actual_tools_called"] = [detect_tool(thought_process)]
+                    
+                    logfire.info(
+                        "Response captured",
+                        tool = sample["actual_tools_called"][0],
+                        response_chars = len(raw_answer),
+                        context_chunks = len(sources)
+                         
+                    )
+                    
+                except requests.exceptions.ConnectionError as e :
+                    
+                    logfire.error("❌ Cannot reach FastAPI — is the app running on :8000?")
+                    sample["actual_response"] = ""
+                    sample["actual_contexts"] = sample.get("relevant_contexts", [])
+                    sample["actual_tools_called"] = ["unknown"]
+                    
+                except Exception as e:
+                    logfire.error(f"❌ Query failed: {e}")
+                    sample["actual_response"] = ""
+                    sample["actual_contexts"] = sample.get("relevant_contexts", [])
+                    sample["actual_tools_called"] = ["unknown"]
+            if progress_callback:
+                progress_callback(i,n,question,"done",sample["actual_response"])
+            
+            if i<n-1:
+                time.sleep(DELAY_BETWEEN_CALLS)     
+                
+        return dataset
+    
+def save_results(dataset:dict,path:str) -> None:
+    with open(path,"w") as f:
+        json.dump(dataset,f,indent=2)
+def load_golden_dataset()->dict:
+    golden_path = os.path.join(os.path.dirname(__file__),"golden_dataset.json")
+    with open(golden_path,"r") as f:
+        return json.load(f)      
+
+        
+            
+                    
+                    
+
